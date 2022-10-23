@@ -1,5 +1,6 @@
-import * as dotenv from 'dotenv' 
-dotenv.config()
+import * as dotenv from 'dotenv';
+import { SoapRequest } from './lib/soap.js';
+dotenv.config();
 
 
 const location_code = process.env.LOCATION_CODE;
@@ -11,7 +12,7 @@ const update_delay = ((process.env.UPDATE_DELAY * 60) * 1000);  // get milliseco
 // get guid for location
 
 let location;
-switch(location_code){ 
+switch(parseInt(location_code)){ 
     case 10:
         location = {
             name: "America Theater",
@@ -100,10 +101,22 @@ if (!location) {
     Rialto = E264F7F4-99AC-4CFD-802E-0B9144977BC1
 */
 
-const update_interval = setInterval(() => {
+// updateSchedule()
+// // main
+// function updateSchedule(){
+//     let date_time = Date.now();
+//     let current_date_time_iso = new Date();
 
-}, update_delay);
+//     // going to get film sessions up to a year in the future
+//     let year_in_milliseconds = 31556926000;
+//     let future_date_iso = new Date(year_in_milliseconds + date_time);
+//     console.log(POSInfoSoap(location.guid, current_date_time_iso, future_date_iso));
 
+
+//     setTimeout(updateSchedule, update_delay);
+// }
+
+// format stdout
 function stdOutLogger(output) {
     let m = new Date();
     let dateString =
@@ -117,4 +130,48 @@ function stdOutLogger(output) {
     return message;
 }
 
-stdOutLogger("HELLO");
+
+let request = new SoapRequest(pos_server);
+
+let date_time = Date.now();
+    let current_date_time_iso = new Date();
+
+    // going to get film sessions up to a year in the future
+    let year_in_milliseconds = 31556926000;
+    let future_date_iso = new Date(year_in_milliseconds + date_time);
+
+request.getPOSScreeningSessions(location.guid, current_date_time_iso, future_date_iso)
+    .then(r => {
+        let screening_array = [];
+
+        r.forEach(element => {
+
+            let film_title = element.SeanceName[0];
+            // add 2D, 3D to film title for linking
+            switch(element.SeanceCopyTypeDescription[0]){
+                case '2D':
+                    film_title += ' 2D';
+                    break;
+                case '3D':
+                    film_title += ' 3D';
+                    break;    
+            }
+            screening_array.push({
+                title: film_title,
+                id: element.SeanceId[0],
+                format: element.SeanceCopyTypeDescription[0],
+                start: element.SeanceTimeFrom[0],
+                end: element.SeanceTimeTo[0],
+                date: element.SeanceDay[0],
+                aud: element.HallName[0],
+                movie_id: element.MovieId[0]
+            });
+        });
+        console.log(screening_array);
+    })
+    .catch(e => console.log(e));
+
+
+
+
+
