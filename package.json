@@ -10,6 +10,7 @@
   "author": "Caleb Williams",
   "license": "GPL-3.0-or-later",
   "dependencies": {
+    "chalk": "^5.1.2",
     "dotenv": "^16.0.3",
     "xml2js": "^0.4.23"
   }
