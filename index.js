@@ -132,6 +132,7 @@ function updateSchedule(){
                 default:
                     stdOutLogger('Unable to determine Theater Management System Type.  Please confirm "TMS_SERVER_TYPE" is correct in config.', 1);
             }
+            console.log(r);
 
         })
         .catch(e => console.log(e));
