@@ -132,7 +132,7 @@ function updateSchedule(){
                 default:
                     stdOutLogger('Unable to determine Theater Management System Type.  Please confirm "TMS_SERVER_TYPE" is correct in config.', 1);
             }
-            console.log(r);
+            //console.log(r);
 
         })
         .catch(e => console.log(e));
@@ -199,12 +199,65 @@ function getPOSSchedule(){
                         date: element.SeanceDay[0],
                         aud: element.HallName[0],
                         movie_id: element.MovieId[0]
-                    });
+                    });                    
                 });
-                resolve(screening_array);
+
+                let auditoriums = [];
+                screening_array.forEach(element => {
+                    if(!auditoriums.includes(element.aud)){
+                        auditoriums.push(element.aud);
+                    }
+                });
+                
+                let screening_by_auditorium = {};
+                
+                for (let house in auditoriums){
+                    screening_by_auditorium[auditoriums[house]] = []
+                    screening_array.forEach(element =>{ 
+                        if(element.aud == auditoriums[house]){
+                            let session = {
+                                title: element.title,
+                                id: element.id,
+                                format: element.format,
+                                start: element.start,
+                                end: element.end,
+                                movie_id: element.movie_id
+                            }
+                            
+                           
+                           screening_by_auditorium[auditoriums[house]].push(session);
+                        }
+                    });
+                }   
+                
+                let bookended_schedule = addBookends(screening_by_auditorium);
+                
+
+                //console.log(screening_by_auditorium);
+
+                resolve(bookended_schedule);
             })
             .catch(e => reject(e));
     })
+}
+
+// Add bookend schedules
+function addBookends(screening_by_auditorium){
+    // 1. break schedule for each auditorium into days
+    // 2. min/max start of first schedule and end of last schedule
+    // 3. append bookend schedules to given object
+    // 4. return full screening_by_auditorium object
+    let start_times = {};
+    for(let house in screening_by_auditorium){
+
+        start_times[house] = screening_by_auditorium[house];
+        
+
+        console.dir(start_times);
+        
+    }
+
+    return screening_by_auditorium;
 }
 
 
