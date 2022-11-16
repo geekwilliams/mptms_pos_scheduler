@@ -1,9 +1,10 @@
 import * as dotenv from 'dotenv';
 import { SoapRequest } from './lib/soap.js';
-import chalk, { Chalk } from 'chalk';
+import chalk from 'chalk';
 import { DolbySchedule } from './lib/dolby_schedule_class.js';
 import { DoremiSchedule } from './lib/doremi_schedule_class.js';
 import { ScreenwriterSchedule } from './lib/screenwriter_schedule_class.js';
+import { initDb, mongodb } from './lib/db.js';
 dotenv.config();
 
 
@@ -97,6 +98,8 @@ if (!location) {
 
         [*]3. Get human friendly session titles from POSitive
 
+        [-]3.5 Get/Set film ID from mongodb database (unique id)
+
         [ ]4. Create xml schedule based on schema of 
               - Dolby LMS
               - Dolby TMS
@@ -106,10 +109,9 @@ if (!location) {
 
         [ ]6. push file
 */
+// get mongodb ready then run main loop
+initDb().then(updateSchedule());
 
-
-
-updateSchedule()
 // main
 function updateSchedule(){
     let date_time = Date.now();
@@ -117,6 +119,43 @@ function updateSchedule(){
 
     getPOSSchedule()
         .then(r => {
+            // get unique id's for films
+            let films = returnFilms(r);
+            let db = new mongodb();
+            db.getFilms()
+                .then(r => {
+                    
+                    // get highest int _id in films array
+                    let intArray = [];
+                    r.forEach(e => {     
+                        intArray.push(e._id);
+                    });
+                    let counter = Math.max(...intArray) + 1;
+
+                    //get list of new films (not in database)
+                    let newFilms = [];
+                    films.forEach(element => {
+                        if (!(r.find(e => e.title === element.title))){
+                            let o = {
+                                _id: counter,
+                                title: element.title,
+                                movie_id: element.movie_id
+                            }
+                            newFilms.push(o);
+                            
+                            counter++;
+
+                        }
+                    });
+                    
+                    // send new films to database for persistence
+                    if(newFilms){
+                        db.putFilms(newFilms)
+                            .then();
+                    }
+                    
+                    
+                });
             // generate class based on location
             let serverSchedule;
             switch(tms_server_type.toUpperCase()){
@@ -132,7 +171,7 @@ function updateSchedule(){
                 default:
                     stdOutLogger('Unable to determine Theater Management System Type.  Please confirm "TMS_SERVER_TYPE" is correct in config.', 1);
             }
-            //console.log(r);
+            
 
         })
         .catch(e => console.log(e));
@@ -192,7 +231,7 @@ function getPOSSchedule(){
                     }
                     screening_array.push({
                         title: film_title,
-                        id: element.SeanceId[0],
+                        session_id: element.SeanceId[0],
                         format: element.SeanceCopyTypeDescription[0],
                         start: element.SeanceTimeFrom[0],
                         end: element.SeanceTimeTo[0],
@@ -209,36 +248,47 @@ function getPOSSchedule(){
                     }
                 });
                 
-                let screening_by_auditorium = {};
+                //let screening_by_auditorium = {};
                 
-                for (let house in auditoriums){
-                    screening_by_auditorium[auditoriums[house]] = []
-                    screening_array.forEach(element =>{ 
-                        if(element.aud == auditoriums[house]){
-                            let session = {
-                                title: element.title,
-                                id: element.id,
-                                format: element.format,
-                                start: element.start,
-                                end: element.end,
-                                movie_id: element.movie_id
-                            }
+                // for (let house in auditoriums){
+                //     screening_by_auditorium[auditoriums[house]] = []
+                //     screening_array.forEach(element =>{ 
+                //         if(element.aud == auditoriums[house]){
+                //             let session = {
+                //                 title: element.title,
+                //                 film_id: element.id,
+                //                 format: element.format,
+                //                 start: element.start,
+                //                 end: element.end,
+                //                 movie_id: element.movie_id
+                //             }
                             
                            
-                           screening_by_auditorium[auditoriums[house]].push(session);
-                        }
-                    });
-                }   
+                //            screening_by_auditorium[auditoriums[house]].push(session);
+                //         }
+                //     });
+                // }   
                 
-                let bookended_schedule = addBookends(screening_by_auditorium);
-                
+                //let bookended_schedule = addBookends(screening_by_auditorium);
 
-                //console.log(screening_by_auditorium);
-
-                resolve(bookended_schedule);
+                resolve(screening_array);
             })
             .catch(e => reject(e));
     })
+}
+
+function returnFilms(scheduleArray){
+    let films = [];
+    scheduleArray.forEach(element => {
+        if (!(films.find(e => e.title === element.title))){
+            let o = {
+                title: element.title,
+                movie_id: element.movie_id
+            }
+            films.push(o);
+        }
+    });
+    return films;
 }
 
 // Add bookend schedules
@@ -259,6 +309,8 @@ function addBookends(screening_by_auditorium){
 
     return screening_by_auditorium;
 }
+
+
 
 
 
