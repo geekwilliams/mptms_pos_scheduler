@@ -141,7 +141,7 @@ function updateSchedule(){
                     let doremiSchedule = new Uint8Array(Buffer.from(schedule.getDoremiScheduleXML(updatedSchedule)));
 
                     // save posschedule.xml
-                    fs.writeFile('.\POSSchedule.xml', doremiSchedule, (err) => {
+                    fs.writeFile('POSSchedule.xml', doremiSchedule, (err) => {
                         if(err){
                             stdOutLogger('Error saving POSSchedule.xml:', 1);
                             console.error(err);
@@ -154,7 +154,7 @@ function updateSchedule(){
                         
                         let client = new ftp();
                         client.on('ready', () => {
-                            client.put('.\POSSchedule.xml', 'DolbySchedule.xml', (err) => {
+                            client.put('POSSchedule.xml', 'DolbySchedule.xml', (err) => {
                                 if(err){
                                     stdOutLogger('Unable to send POSSchedule.xml to server'); 
                                     console.log(err);
