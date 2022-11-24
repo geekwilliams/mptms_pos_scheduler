@@ -1,18 +1,18 @@
 import * as dotenv from 'dotenv';
 import { SoapRequest } from './lib/soap.js';
 import chalk from 'chalk';
-import { DolbySchedule } from './lib/dolby_schedule_class.js';
-import { DoremiSchedule } from './lib/doremi_schedule_class.js';
-import { ScreenwriterSchedule } from './lib/screenwriter_schedule_class.js';
+import { SCHEDULE } from './lib/schedule_class.js';
 import { initDb, mongodb } from './lib/db.js';
 import crypto from 'crypto';
+import * as fs from 'fs';
+import ftp  from 'ftp';
 dotenv.config();
 
 
 const location_code = process.env.LOCATION_CODE;
 const pos_server = process.env.POS_SERVER; 
 const tms_server = process.env.TMS_SERVER;
-const tms_server_type = process.env.TMS_SERVER_TYPE;
+const add_bookend_schedules = process.env.ADD_BOOKEND_SCHEDULES;
 const update_delay = ((process.env.UPDATE_DELAY * 60) * 1000);  // get milliseconds
 const bookend_intermission_start = process.env.INTERMISSION_START;
 const bookend_shutdown_start = process.env.SHUTDOWN_START;
@@ -98,6 +98,8 @@ if (!location) {
 
 /*
     TODO:
+        [ ]0.5 Validate config file (make sure vals are correct datatypes)
+
         [*]1. Define time loop (based on env.UPDATE_DELAY) 
         
         [*]2. Get sessions via soap from POSitive
@@ -109,15 +111,15 @@ if (!location) {
 
         [*]3.5 Get/Set film ID from mongodb database (unique id)
 
-        [ ]3.9 Get/set session ID from mongodb (dolby TMS requires int type for id)
+        [*]3.9 Get/set session ID from mongodb (dolby TMS requires int type for id)
 
 
         [ ]4. Create xml schedule based on schema of 
               - Dolby LMS
-              - Dolby TMS
+              (*)- Dolby TMS
               - Screenwriter
 
-        [ ]5. Generate bookend schedules for LMS and TMS
+        [*]5. Generate bookend schedules for LMS and TMS
 
         [ ]6. push file
 */
@@ -132,279 +134,46 @@ function updateSchedule(){
     getPOSSchedule()
         .then(posSchedule => {
             stdOutLogger('POS Schedule retrieval successfull.');
-            // get unique id's for films
-            let films = returnFilms(posSchedule);
-            let db = new mongodb();
-            db.getFilms()
-                .then(dbFilms => {
-                    // get highest int _id in films array
-                    let intArray = [];
-                    dbFilms.forEach(e => {     
-                        intArray.push(e._id);
-                    });
-                    let counter = Math.max(...intArray) + 1;
+            getSessionsForSchedule(posSchedule)
+                .then(updatedSchedule => {
+                    // generate schedule file based on system type
+                    let schedule = new SCHEDULE();
+                    let doremiSchedule = new Uint8Array(Buffer.from(schedule.getDoremiScheduleXML(updatedSchedule)));
 
-                    //get list of new films (not in database)
-                    let newFilms = [];
-                    for(let i=0; i < films.length; i++){
-                        let filmInDatabase = false;
-                        for(let dbFilmIndex=0; dbFilmIndex < dbFilms.length; dbFilmIndex++){
-                            if(dbFilms[dbFilmIndex].movie_id === films[i].movie_id){
-                                filmInDatabase = true;
-                            }
-                            
+                    // save posschedule.xml
+                    fs.writeFile('.\POSSchedule.xml', doremiSchedule, (err) => {
+                        if(err){
+                            stdOutLogger('Error saving POSSchedule.xml:', 1);
+                            console.error(err);
                         }
-    
-                        if(!filmInDatabase){
-                            let newfilm = {
-                                _id: counter,
-                                title: films[i].title,
-                                movie_id: films[i].movie_id
-                            }    
-                            
-                            newFilms.push(newfilm);
-                            counter++;
-                        }
-                    };                  
-                    
-                    // send new films to database for persistence
-                    if(newFilms.length != 0){
-                        stdOutLogger('New films found. Adding to database...');
-                        db.putFilms(newFilms)
-                            .then(response => {
-                                stdOutLogger('Success.');
-                                switch(tms_server_type.toUpperCase()){
-                                    case 'TMS':
-                                        let bookended_schedule = addBookends(posSchedule);
-                                        stdOutLogger('Checking database sessions...');
-                                        // get session id's mapping from db
-                                        db.getSessions()
-                                            .then(dbSessions => {
-                                                if(dbSessions.length === 0){
-                                                    let new_schedule = [];
-                                                    stdOutLogger('No Sessions in database...');
-                                                    for(let i=0; i < bookended_schedule.length; i++){
-                                                        let id = i+1
-                                                        
-                                                        let session = {
-                                                            _id: id,
-                                                            session_id: bookended_schedule[i].session_id,
-                                                            title: bookended_schedule[i].title,
-                                                            movie_id: bookended_schedule[i].movie_id,
-                                                            format: bookended_schedule[i].format,
-                                                            start: bookended_schedule[i].start,
-                                                            end: bookended_schedule[i].end,
-                                                            aud: bookended_schedule[i].aud,
-                                                            date: bookended_schedule[i].date
-                                                        }
+                        stdOutLogger('POSSchedule.xml saved successfully.');
 
-                                                        let session_id;
-                                                        if(!bookended_schedule[i].session_id){
-                                                            session.session_id = crypto.randomUUID();
-                                                        }
-                                                        new_schedule.push(session);
-                                                    }
-
-                                                    db.putSessions(new_schedule)
-                                                        .then(response => {
-                                                            stdOutLogger('New Sessions added to database.');
-                                                        })
-                                                        .catch(e => {
-                                                        
-                                                            stdOutLogger('Error in putSessions', 1);
-                                                            console.log(e);
-                                                        });
-                                                }
-                                                else{
-                                                    // set up to get int id
-                                                    let dbSessionInt = [];
-                                                    dbSessions.forEach(element => {
-                                                        dbSessionInt.push(element.session_id_int);
-                                                    })
-                                                    let sessionInt = Math.max(...dbSessionInt) + 1;
-
-                                                    // get if sessions are already in database
-                                                    let newSessions = [];
-                                                    for(let i=0; i < bookended_schedule.length; i++){
-                                                        let sessionInDatabase = false;
-                                                        for(let d=0; i < dbSessions.length; i++){
-                                                            if(dbSessions[d].session_id === bookended_schedule[i].session_id){
-                                                                sessionInDatabase = true;
-                                                            }
-                                                            
-                                                        }
-                                    
-                                                        if(!sessionInDatabase){
-                                                            let newSession = {
-                                                                _id: bookended_schedule[i]._id,
-                                                                session_id: bookended_schedule[i].session_id,
-                                                                session_id_int: sessionInt,
-                                                                title: bookended_schedule[i].title,
-                                                                movie_id: bookended_schedule[i].movie_id,
-                                                                format: bookended_schedule[i].format,
-                                                                start: bookended_schedule[i].start,
-                                                                end: bookended_schedule[i].end,
-                                                                aud: bookended_schedule[i].aud,
-                                                                date: bookended_schedule[i].date
-                                                            }
-                                                            
-                                                            let session_id;
-                                                            if(!bookended_schedule[i].session_id){
-                                                                newSession.session_id = crypto.randomUUID();
-                                                            }
-                                                            
-                                                            newSessions.push(newSession);
-                                                            sessionInt++;
-                                                        }
-                                                    }; 
-
-                                                    // push updated sessions to database
-                                                    if(newSessions != 0){
-                                                        db.putSessions(newSessions)
-                                                            .then(response => {
-                                                                stdOutLogger('New Sessions added to database.');
-                                                            })
-                                                            .catch(e => {
-                                
-                                                                stdOutLogger('Error in putSessions', 1);
-                                                                console.log(e);
-                                                            });
-                                                    }
-                                                }
-                                            });
-                                        break;
-                                    case 'LMS': 
-                                        break;
-                                    case 'SCREENWRITER':
-                                        break;
-                                    default: 
-                                        stdOutLogger('Unable to determine theater management system type.  Please confirm config file', 1);
-                                        break;
-                                }
-                                // do bookends & create xml
-                                
-                                
-                            })
-                            .catch(e => {
-                                
-                                stdOutLogger('Error in putFilms', 1);
-                                console.log(e);
-                            });
-                    }
-                    else {
-                        switch(tms_server_type.toUpperCase()){
-                            case 'TMS':
-                                let bookended_schedule = addBookends(posSchedule);
-                                stdOutLogger('Checking database sessions...');
-                                    // get session id's mapping from db
-                                db.getSessions()
-                                    .then(dbSessions => {
-
-                                        
-                                    //     if(dbSessions.length === 0){
-                                    //         let new_schedule = [];
-                                    //         stdOutLogger('No Sessions in database...');
-                                    //         for(let i=0; i < bookended_schedule.length; i++){
-                                    //             let session = {
-                                    //                 _id: i + 1,
-                                    //                 session_id: bookended_schedule[i].session_id,
-                                    //                 film_id_int: bookended_schedule[i]._id,
-                                    //                 title: bookended_schedule[i].title,
-                                    //                 movie_id: bookended_schedule[i].movie_id,
-                                    //                 format: bookended_schedule[i].format,
-                                    //                 start: bookended_schedule[i].start,
-                                    //                 end: bookended_schedule[i].end,
-                                    //                 aud: bookended_schedule[i].aud,
-                                    //                 date: bookended_schedule[i].date
-                                    //             }
-                                    //             new_schedule.push();
-                                    //         }
-                                    //         db.putSessions(new_schedule);
-                                    //     }
-                                    //     else{
-                                    //         // set up to get int id
-                                    //         let dbSessionInt = [];
-                                    //         dbSessions.forEach(element => {
-                                    //             dbSessionInt.push(element.session_id_int);
-                                    //         })
-                                    //         let sessionInt = Math.max(...dbSessionInt) + 1;
-                                    //         // get if sessions are already in database
-                                    //         let newSessions = [];
-                                    //         for(let i=0; i < bookended_schedule.length; i++){
-                                    //             let sessionInDatabase = false;
-                                    //             for(let d=0; i < dbSessions.length; i++){
-                                    //                 if(dbSessions[d].session_id === bookended_schedule[i].session_id){
-                                    //                     sessionInDatabase = true;
-                                    //                 }
-                                                    
-                                    //             }
-                            
-                                    //             if(!sessionInDatabase){
-                                    //                 let newSession = {
-                                    //                     _id: sessionInt,
-                                    //                     session_id: bookended_schedule[i].session_id,
-                                    //                     title: bookended_schedule[i].title,
-                                    //                     movie_id: bookended_schedule[i].movie_id,
-                                    //                     format: bookended_schedule[i].format,
-                                    //                     start: bookended_schedule[i].start,
-                                    //                     end: bookended_schedule[i].end,
-                                    //                     aud: bookended_schedule[i].aud,
-                                    //                     date: bookended_schedule[i].date
-                                    //                 }    
-                                                    
-                                    //                 newSessions.push(newSession);
-                                    //                 sessionInt++;
-                                    //             }
-                                    //         }; 
-                                    //         // push updated sessions to database
-                                    //         if(newSessions != 0){
-                                    //             db.putSessions(newSessions)
-                                    //                 .then(response => {
-                                    //                 })
-                                    //                 .catch(e => {
+                        // send schedule to server via ftp
+                        let username = 'admin';
+                        let password = '1234';
                         
-                                    //                     stdOutLogger('Error in putSessions', 1);
-                                    //                     console.log(e);
-                                    //                 });
-                                    //         }
-                                    //     }
-                                    });
-                                break;
-                            case 'LMS': 
-                                break;
-                            case 'SCREENWRITER':
-                                break;
-                            default: 
-                                stdOutLogger('Unable to determine theater management system type.  Please confirm config file', 1);
-                                break;
-                        }
-                        // do bookends & create xml
+                        let client = new ftp();
+                        client.on('ready', () => {
+                            client.put('.\POSSchedule.xml', 'DolbySchedule.xml', (err) => {
+                                if(err){
+                                    stdOutLogger('Unable to send POSSchedule.xml to server'); 
+                                    console.log(err);
+                                }
+                                stdOutLogger('Schedule updated on tms @ ftp://' + tms_server);
+                                client.end();
+                            });
+                        });
+                        client.connect({ host: tms_server, user: username, password: password });
+                    });
+                    //console.log(schedule.getDoremiScheduleXML(updatedSchedule));
+                    //schedule.getDoremiScheduleXML(updatedSchedule)
 
-                    }
-                    
-                    
                 })
-                .catch(e => {
-                    console.log(e)
-                    stdOutLogger(e, 1);
-                });
-            // generate class based on location
-            let serverSchedule;
-            switch(tms_server_type.toUpperCase()){
-                case 'TMS':
-                    serverSchedule = new DoremiSchedule();
-                    break;
-                case 'LMS':
-                    serverSchedule = new DolbySchedule();
-                    break;
-                case 'Screenwriter':
-                    serverSchedule = new ScreenwriterSchedule();
-                    break;
-                default:
-                    stdOutLogger('Unable to determine Theater Management System Type.  Please confirm "TMS_SERVER_TYPE" is correct in config.', 1);
-            }
-            
 
+                .catch(e=> {
+                    stdOutLogger('Unable to get updated sessions for schedule template', 1);
+                    console.log(e)
+                });
         })
         .catch(e => {
             stdOutLogger('There was a problem getting POS Schedules', 1);
@@ -474,29 +243,6 @@ function getPOSSchedule(){
                         auditoriums.push(element.aud);
                     }
                 });
-                
-                //let screening_by_auditorium = {};
-                
-                // for (let house in auditoriums){
-                //     screening_by_auditorium[auditoriums[house]] = []
-                //     screening_array.forEach(element =>{ 
-                //         if(element.aud == auditoriums[house]){
-                //             let session = {
-                //                 title: element.title,
-                //                 film_id: element.id,
-                //                 format: element.format,
-                //                 start: element.start,
-                //                 end: element.end,
-                //                 movie_id: element.movie_id
-                //             }
-                            
-                           
-                //            screening_by_auditorium[auditoriums[house]].push(session);
-                //         }
-                //     });
-                // }   
-                
-                //let bookended_schedule = addBookends(screening_by_auditorium);
 
                 resolve(screening_array);
             })
@@ -642,4 +388,321 @@ function addBookends(schedule){
     }
 
     return schedule;
+}
+
+// handle all database stuff for getting/setting film and session id's that are type INT for legacy dolby and doremi
+function getSessionsForSchedule(posSchedule){
+    return new Promise(async (resolve, reject) => {
+
+        // get & add new films + set film id int
+        let films = returnFilms(posSchedule);
+        let db = new mongodb();
+        let dbFilms;
+        try{
+            dbFilms = await db.getFilms();
+        }
+        catch(e){
+            stdOutLogger('There was an error getting films from the database:', 1);
+            console.log(e);
+        }
+        let intArray = [];
+        dbFilms.forEach(e =>{
+            intArray.push(e._id);
+        });
+
+        let counter;
+        if(Math.max(...intArray) < 1){
+            counter = 1; 
+        }
+        else{
+            counter = Math.max(...intArray) + 1;
+        }
+
+        let newFilms = [];
+
+        for(let i=0; i < films.length; i++){
+            let filmInDatabase = false;
+            for(let dbFilmIndex=0; dbFilmIndex < dbFilms.length; dbFilmIndex++){
+                if(dbFilms[dbFilmIndex].movie_id === films[i].movie_id){
+                    filmInDatabase = true;
+                }
+                
+            }
+
+            if(!filmInDatabase){
+                let newfilm = {
+                    _id: counter,
+                    title: films[i].title,
+                    movie_id: films[i].movie_id
+                }    
+                
+                newFilms.push(newfilm);
+                counter++;
+            }
+        };
+
+        if(newFilms.length != 0){
+            stdOutLogger('New films found. Adding to database...');
+            try{
+                let status = await db.putFilms(newFilms);
+                if(!status){
+                    stdOutLogger('Success.');
+                }
+            }
+            catch(e){
+                stdOutLogger('There was an error adding films to database: ', 1);
+                console.log(e);
+            }
+
+        }
+
+        // add bookends if setting is set in config
+        // then get/set sessions in sessions db
+        if(add_bookend_schedules){
+            let bookended_schedule = addBookends(posSchedule);
+            try{
+                let dbSessions = await db.getSessions();
+                if(dbSessions.length != 0){
+                    let dbSessionCount = [];
+                    dbSessions.forEach(e => {
+                        dbSessionCount.push(e.session_id);
+                    });
+
+                    let sessionCount = Math.max(...dbSessionCount) + 1;
+                    
+
+                    let newSessions = [];
+                    for(let i=0; i < bookended_schedule.length; i++){
+                        let sessionInDatabase = false;
+                        for(let d=0; d < dbSessions.length; d++){
+                            if((dbSessions[d]._id === bookended_schedule[i].session_id) || ((dbSessions[d].title === bookended_schedule[i].title) && (dbSessions[d].start === bookended_schedule[i].start))){
+                                sessionInDatabase = true;
+                            }
+                            
+                        }
+                        
+                        if(!sessionInDatabase){
+                            let newSession = {
+                                session_id: sessionCount,
+                                title: bookended_schedule[i].title,
+                                movie_id: bookended_schedule[i].movie_id,
+                                format: bookended_schedule[i].format,
+                                start: bookended_schedule[i].start,
+                                end: bookended_schedule[i].end,
+                                aud: bookended_schedule[i].aud,
+                                date: bookended_schedule[i].date
+                            }
+                            
+
+                            // this section adds _id to bookend schedules that won't have them
+                            if(!bookended_schedule[i].session_id){
+                                newSession._id = crypto.randomUUID();
+                            }
+                            else{
+                                newSession._id = bookended_schedule[i].session_id;
+                            }
+                            
+                            newSessions.push(newSession);
+                            sessionCount++;
+                        }
+                    }
+                    
+                    // push updated sessions to database
+                    if(newSessions != 0){
+                        try{
+                            let response = await db.putSessions(newSessions);
+                            if(!response){
+                                stdOutLogger('New Sessions added to database.');
+                            }
+                        }
+                        catch(e){
+                            stdOutLogger('Error in putSessions', 1);
+                            console.log(e);
+                        }
+                    
+                    }
+
+                }
+                else{
+                    let newSessions = [];
+                    for(let i=0; i < bookended_schedule.length; i++){
+                        let sid = i + 1;
+                        let newSession = {
+                            session_id: sid,
+                            title: bookended_schedule[i].title,
+                            movie_id: bookended_schedule[i].movie_id,
+                            format: bookended_schedule[i].format,
+                            start: bookended_schedule[i].start,
+                            end: bookended_schedule[i].end,
+                            aud: bookended_schedule[i].aud,
+                            date: bookended_schedule[i].date
+                        }
+
+                        // this section adds _id to bookend schedules that won't have them
+                        if(!bookended_schedule[i].session_id){
+                            newSession._id = crypto.randomUUID();
+                        }
+                        else{
+                            newSession._id = bookended_schedule[i].session_id;
+                        }
+
+                        newSessions.push(newSession);
+                    }
+                    if(newSessions != 0){
+                        try{
+                            let response = await db.putSessions(newSessions);
+                            if(!response){
+                                stdOutLogger('New Sessions added to database.');
+                            }
+                        }
+                        catch(e){
+                            stdOutLogger('Error in putSessions', 1);
+                            console.log(e);
+                        }
+                    
+                    }
+                }
+            }
+            catch(e){
+                stdOutLogger('There was an error getting films from database: ', 1);
+                console.log(e);
+            }
+
+        }
+        else{
+            try{
+                let dbSessions = db.getSessions();
+                if(dbSessions.length != 0){
+                    let dbSessionCount = [];
+                    dbSessions.forEach(e => {
+                        dbSessionCount.push(e.session_id);
+                    });
+
+                    let sessionCount = Math.max(...dbSessionCount) + 1;
+
+                    let newSessions = [];
+                    for(let i=0; i < posSchedule.length; i++){
+                        let sessionInDatabase = false;
+                        for(let d=0; i < dbSessions.length; i++){
+                            if(dbSessions[d].session_id === posSchedule[i].session_id){
+                                sessionInDatabase = true;
+                            }
+                            
+                        }
+    
+                        if(!sessionInDatabase){
+                            let newSession = {
+                                _id: posSchedule[i].session_id,
+                                session_id: sessionCount,
+                                title: posSchedule[i].title,
+                                movie_id: posSchedule[i].movie_id,
+                                format: posSchedule[i].format,
+                                start: posSchedule[i].start,
+                                end: posSchedule[i].end,
+                                aud: posSchedule[i].aud,
+                                date: posSchedule[i].date
+                            }
+                            
+                            // let session_id;
+                            // if(!posSchedule[i].session_id){
+                            //     newSession.session_id = crypto.randomUUID();
+                            // }
+                            
+                            newSessions.push(newSession);
+                            sessionCount++;
+                        }
+                    }
+                    
+                    // push updated sessions to database
+                    if(newSessions.length != 0){
+                        try{
+                            let response = await db.putSessions(newSessions);
+                            if(!response){
+                                stdOutLogger('New Sessions added to database.');
+                            }
+                        }
+                        catch(e){
+                            stdOutLogger('Error in putSessions', 1);
+                            console.log(e);
+                        }
+                    
+                    }
+
+                }
+                else{
+                    let newSessions = [];
+                    for(let i=0; i < posSchedule.length; i++){
+                        let sid = i+1; 
+                        let newSession = {
+                            _id: posSchedule[i].session_id,
+                            session_id: sid,
+                            title: posSchedule[i].title,
+                            movie_id: posSchedule[i].movie_id,
+                            format: posSchedule[i].format,
+                            start: posSchedule[i].start,
+                            end: posSchedule[i].end,
+                            aud: posSchedule[i].aud,
+                            date: posSchedule[i].date
+                        }
+                        newSessions.push(newSession);
+                    }
+                    if(newSessions.length != 0){
+                        try{
+                            let response = await db.putSessions(newSessions);
+                            if(!response){
+                                stdOutLogger('New Sessions added to database.');
+                            }
+                        }
+                        catch(e){
+                            stdOutLogger('Error in putSessions', 1);
+                            console.log(e);
+                        }
+                    
+                    }
+
+                }
+            }
+            catch(e){
+                stdOutLogger('There was an error getting films from database: ', 1);
+                console.log(e);
+            }
+        }
+
+        // get updated schedule from database and return;
+        try{
+            let updatedSchedule = await db.getSessions();
+            let updatedFilms = await db.getFilms();
+            // add film _id int value to return structure
+            let newScheduleArray = [];
+
+            for(let i=0; i < updatedSchedule.length; i++){
+                for(let f=0; f < updatedFilms.length; f++){
+                    if(updatedSchedule[i].movie_id === updatedFilms[f].movie_id){
+                        let session = {
+                            _id: updatedSchedule[i]._id,
+                            session_id: updatedSchedule[i].session_id,
+                            title: updatedSchedule[i].title,
+                            movie_id: updatedSchedule[i].movie_id,
+                            movie_id_int: updatedFilms[f]._id,
+                            format: updatedSchedule[i].format,
+                            start: updatedSchedule[i].start,
+                            end: updatedSchedule[i].end,
+                            aud: updatedSchedule[i].aud,
+                            date: updatedSchedule[i].date
+                        }
+
+                        newScheduleArray.push(session);
+                    }
+                }
+            }
+
+            resolve(newScheduleArray);
+        }
+        catch(e){
+            stdOutLogger('There was an error getting updated sessions from database: ', 1);
+            console.log(e);
+            reject();
+        }
+    });
+
 }
