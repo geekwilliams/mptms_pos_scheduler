@@ -18,6 +18,7 @@ const bookend_intermission_start = process.env.INTERMISSION_START;
 const bookend_shutdown_start = process.env.SHUTDOWN_START;
 const bookend_time_length = (process.env.BOOKEND_TIME_LENGTH * 1000) || 60000; // get milliseconds from seconds
 const days_to_get_schedule = process.env.SCHEDULE_DAYS;
+const pos_filename = process.env.POS_FILENAME;
 
 
 
@@ -121,7 +122,7 @@ if (!location) {
 
         [*]5. Generate bookend schedules for LMS and TMS
 
-        [ ]6. push file
+        [*]6. push file
 */
 // get mongodb ready then run main loop
 initDb().then(updateSchedule());
@@ -154,7 +155,9 @@ function updateSchedule(){
                         
                         let client = new ftp();
                         client.on('ready', () => {
-                            client.put('POSSchedule.xml', 'DolbySchedule.xml', (err) => {
+
+                            client.put('POSSchedule.xml', pos_filename, (err) => {
+
                                 if(err){
                                     stdOutLogger('Unable to send POSSchedule.xml to server'); 
                                     console.log(err);
