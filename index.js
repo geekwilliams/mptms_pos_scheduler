@@ -155,7 +155,9 @@ function updateSchedule(){
                         
                         let client = new ftp();
                         client.on('ready', () => {
+
                             client.put('POSSchedule.xml', pos_filename, (err) => {
+
                                 if(err){
                                     stdOutLogger('Unable to send POSSchedule.xml to server'); 
                                     console.log(err);
