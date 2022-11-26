@@ -742,10 +742,10 @@ function getISOlocaleString(){
             else{
                 hourstring = hour;
             }
-    }
-    else{
-        hourstring = hour;
+        }
+        else{
+            hourstring = hour;
+         }
     }
     return year + '-' + month + '-' + day + 'T'  + hourstring + ':' + minute + ':' + second;
-    }
 }
