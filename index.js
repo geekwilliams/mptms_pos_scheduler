@@ -140,24 +140,19 @@ function updateSchedule(){
                     // generate schedule file based on system type
                     let schedule = new SCHEDULE();
                     let doremiSchedule = new Uint8Array(Buffer.from(schedule.getDoremiScheduleXML(updatedSchedule)));
-
-                    // save posschedule.xml
+                        // save posschedule.xml
                     fs.writeFile('POSSchedule.xml', doremiSchedule, (err) => {
                         if(err){
                             stdOutLogger('Error saving POSSchedule.xml:', 1);
                             console.error(err);
                         }
                         stdOutLogger('POSSchedule.xml saved successfully.');
-
                         // send schedule to server via ftp
                         let username = 'admin';
                         let password = '1234';
-                        
                         let client = new ftp();
                         client.on('ready', () => {
-
                             client.put('POSSchedule.xml', pos_filename, (err) => {
-
                                 if(err){
                                     stdOutLogger('Unable to send POSSchedule.xml to server'); 
                                     console.log(err);
@@ -166,14 +161,14 @@ function updateSchedule(){
                                 client.end();
                             });
                         });
+                        client.on('error', (err) => {
+                            stdOutLogger('There was an error problem with the FTP server:');
+                            console.log(err);
+                        }) ; 
                         client.connect({ host: tms_server, user: username, password: password });
                     });
-                    //console.log(schedule.getDoremiScheduleXML(updatedSchedule));
-                    //schedule.getDoremiScheduleXML(updatedSchedule)
-
-                })
-
-                .catch(e=> {
+                }) 
+                .catch(e => {
                     stdOutLogger('Unable to get updated sessions for schedule template', 1);
                     console.log(e)
                 });
@@ -214,17 +209,13 @@ function getPOSSchedule(){
         let request = new SoapRequest(pos_server);
 
         let date_time = Date.now();
-        let current_date = new Date();
-        let cdIso = (current_date.toISOString()).substring(0, 10);
-
+        let current_date = getISOlocaleString();
+        let cdIso = current_date.substring(0,10);
         // going to get film sessions up to a year in the future
         let days_to_get_schedule_ms = parseInt(days_to_get_schedule) * 86400000;
         // let year_in_milliseconds = 31556926000;
         let future_date = new Date(days_to_get_schedule_ms + date_time);
         let fdIso = (future_date.toISOString()).substring(0, 10);
-
-
-
         request.getPOSScreeningSessions(location.guid, cdIso, fdIso)
             .then(r => {
                 let screening_array = [];
@@ -712,4 +703,49 @@ function getSessionsForSchedule(posSchedule){
         }
     });
 
+}
+
+function getISOlocaleString(){
+    
+    let d = new Date();
+    let localeString = d.toLocaleString('en-US', {timezone: 'America/Denver'});
+    let year = localeString.substring(6,10);
+    let month = localeString.substring(0,2);
+    let day = localeString.substring(3,5);
+    let hour = localeString.substring(12,13);
+    let minute = localeString.substring(14,16);
+    let second = localeString.substring(17,19);
+    let meridiem = localeString.substring(20,22);
+    let hourstring;
+    // fix hour to be 24
+    if((meridiem === 'AM') | (meridiem === 'PM')){
+        if((parseInt(hour) <= 12)){
+            if(meridiem === 'AM'){
+                if(parseInt(hour) === 12){
+                    hourstring = "00";
+                }
+                else if(parseInt(hour) < 10){
+                    hourstring = '0' + hour;
+                }
+                else{
+                    hourstring = hour;
+                }
+            }
+            else if(meridiem === 'PM'){
+                if(parseInt(hour) === 12){
+                    hourstring = hour;
+                }
+                else if(parseInt(hour) < 10){
+                    hourstring = '0' + hour;
+                }
+            }
+            else{
+                hourstring = hour;
+            }
+    }
+    else{
+        hourstring = hour;
+    }
+    return year + '-' + month + '-' + day + 'T'  + hourstring + ':' + minute + ':' + second;
+    }
 }
