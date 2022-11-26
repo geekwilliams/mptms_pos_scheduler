@@ -212,14 +212,18 @@ function getPOSSchedule(){
         let request = new SoapRequest(pos_server);
 
         let date_time = Date.now();
-        let current_date_time_iso = new Date();
+        let current_date = new Date();
+        let cdIso = (current_date.toISOString()).substring(0, 10);
 
         // going to get film sessions up to a year in the future
         let days_to_get_schedule_ms = parseInt(days_to_get_schedule) * 86400000;
         // let year_in_milliseconds = 31556926000;
-        let future_date_iso = new Date(days_to_get_schedule_ms + date_time);
+        let future_date = new Date(days_to_get_schedule_ms + date_time);
+        let fdIso = (future_date.toISOString()).substring(0, 10);
 
-        request.getPOSScreeningSessions(location.guid, current_date_time_iso, future_date_iso)
+
+
+        request.getPOSScreeningSessions(location.guid, cdIso, fdIso)
             .then(r => {
                 let screening_array = [];
 
