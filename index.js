@@ -221,7 +221,20 @@ function getPOSSchedule(){
                 let screening_array = [];
 
                 r.forEach(element => {
-
+                    switch (element.HallName[0]){
+                        case "Club 21 Screen 4":
+                            element.HallName[0] = "Screen 16";
+                            break;
+                        case "Club 21 Screen 3":
+                            element.HallName[0] = "Screen 15";
+                            break;
+                        case "Club 21 Screen 2":
+                            element.HallName[0] = "Screen 14";
+                            break;
+                        case "Club 21 Screen 1":
+                            element.HallName[0] = "Screen 13";
+                    }
+                    
                     let film_title = element.SeanceName[0];
                     screening_array.push({
                         title: film_title,
@@ -234,13 +247,14 @@ function getPOSSchedule(){
                         movie_id: element.MovieCopyId[0]
                     });                    
                 });
-
+                
                 let auditoriums = [];
                 screening_array.forEach(element => {
                     if(!auditoriums.includes(element.aud)){
                         auditoriums.push(element.aud);
                     }
                 });
+                
 
                 resolve(screening_array);
             })
@@ -391,7 +405,7 @@ function addBookends(schedule){
 // handle all database stuff for getting/setting film and session id's that are type INT for legacy dolby and doremi
 function getSessionsForSchedule(posSchedule){
     return new Promise(async (resolve, reject) => {
-
+        
         // get & add new films + set film id int
         let films = returnFilms(posSchedule);
         let db = new mongodb();
@@ -569,7 +583,7 @@ function getSessionsForSchedule(posSchedule){
         }
         else{
             try{
-                let dbSessions = db.getSessions();
+                let dbSessions = await db.getSessions();
                 if(dbSessions.length != 0){
                     let dbSessionCount = [];
                     dbSessions.forEach(e => {
@@ -688,7 +702,7 @@ function getSessionsForSchedule(posSchedule){
                             aud: updatedSchedule[i].aud,
                             date: updatedSchedule[i].date
                         }
-
+                        
                         newScheduleArray.push(session);
                     }
                 }
