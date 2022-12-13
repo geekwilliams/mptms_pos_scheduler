@@ -167,6 +167,11 @@ function updateSchedule(){
                         }) ; 
                         client.connect({ host: tms_server, user: username, password: password });
                     });
+
+                    let db = new mongodb();
+
+                    db.cleanDbs();
+
                 }) 
                 .catch(e => {
                     stdOutLogger('Unable to get updated sessions for schedule template', 1);
@@ -210,7 +215,7 @@ function getPOSSchedule(){
 
         let date_time = Date.now();
         let current_date = getISOlocaleString();
-        let cdIso = (current_date.split('T',1))[0];
+        let cdIso = (current_date.split('T', 1))[0];
         // going to get film sessions up to a year in the future
         let days_to_get_schedule_ms = parseInt(days_to_get_schedule) * 86400000;
         // let year_in_milliseconds = 31556926000;
@@ -255,7 +260,6 @@ function getPOSSchedule(){
                     }
                 });
                 
-
                 resolve(screening_array);
             })
             .catch(e => reject(e));
@@ -719,7 +723,7 @@ function getSessionsForSchedule(posSchedule){
 
 }
 
-function getISOlocaleString(){
+export function getISOlocaleString(){
     
     let d = new Date();
     let localeString = d.toLocaleString('en-US', {timezone: 'America/Denver'});
