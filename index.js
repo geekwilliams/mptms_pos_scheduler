@@ -167,6 +167,16 @@ function updateSchedule(){
                         }) ; 
                         client.connect({ host: tms_server, user: username, password: password });
                     });
+
+                    let db = new mongodb();
+
+                    db.cleanDbs()
+                        .then(r => {
+                            stdOutLogger('Removed old content from databases');
+                        })
+                        .catch(e => stdOutLogger(e, 1));
+
+
                 }) 
                 .catch(e => {
                     stdOutLogger('Unable to get updated sessions for schedule template', 1);
@@ -210,7 +220,7 @@ function getPOSSchedule(){
 
         let date_time = Date.now();
         let current_date = getISOlocaleString();
-        let cdIso = current_date.substring(0,10);
+        let cdIso = (current_date.split('T', 1))[0];
         // going to get film sessions up to a year in the future
         let days_to_get_schedule_ms = parseInt(days_to_get_schedule) * 86400000;
         // let year_in_milliseconds = 31556926000;
@@ -255,7 +265,6 @@ function getPOSSchedule(){
                     }
                 });
                 
-
                 resolve(screening_array);
             })
             .catch(e => reject(e));
@@ -719,17 +728,19 @@ function getSessionsForSchedule(posSchedule){
 
 }
 
-function getISOlocaleString(){
+export function getISOlocaleString(){
     
     let d = new Date();
     let localeString = d.toLocaleString('en-US', {timezone: 'America/Denver'});
-    let year = localeString.substring(6,10);
-    let month = localeString.substring(0,2);
-    let day = localeString.substring(3,5);
-    let hour = localeString.substring(12,13);
-    let minute = localeString.substring(14,16);
-    let second = localeString.substring(17,19);
-    let meridiem = localeString.substring(20,22);
+    let strArr =  localeString.split('/', 5);
+    let year = ((strArr[2]).split(',', 2))[0];
+    let month = strArr[0];
+    let day = strArr[1];
+    let clArr = (localeString.split(' ', 3))[1];
+    let hour = (clArr.split(':', 3))[0];
+    let minute = (clArr.split(':', 3))[1];
+    let second = (clArr.split(':', 3))[2];
+    let meridiem = (localeString.split(' ', 3))[2];
     let hourstring;
     // fix hour to be 24
     if((meridiem === 'AM') | (meridiem === 'PM')){
