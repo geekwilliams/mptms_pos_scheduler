@@ -170,7 +170,12 @@ function updateSchedule(){
 
                     let db = new mongodb();
 
-                    db.cleanDbs();
+                    db.cleanDbs()
+                        .then(r => {
+                            stdOutLogger('Removed old content from databases');
+                        })
+                        .catch(e => stdOutLogger(e, 1));
+
 
                 }) 
                 .catch(e => {
