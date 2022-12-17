@@ -172,7 +172,7 @@ function updateSchedule(){
 
                     db.cleanDbs()
                         .then(r => {
-                            stdOutLogger('Removed old content from databases');
+                            if(r) stdOutLogger('Removed old content from databases');
                         })
                         .catch(e => stdOutLogger(e, 1));
 
