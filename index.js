@@ -99,8 +99,6 @@ if (!location) {
 
 /*
     TODO:
-        [ ]0.5 Validate config file (make sure vals are correct datatypes)
-
         [*]1. Define time loop (based on env.UPDATE_DELAY) 
         
         [*]2. Get sessions via soap from POSitive
@@ -114,7 +112,8 @@ if (!location) {
 
         [*]3.9 Get/set session ID from mongodb (dolby TMS requires int type for id)
 
-
+        [ ]3.95 Filter database sessions to only include current date and after
+        
         [ ]4. Create xml schedule based on schema of 
               - Dolby LMS
               (*)- Dolby TMS
@@ -129,17 +128,32 @@ initDb().then(updateSchedule());
 
 // main
 function updateSchedule(){
-    let date_time = Date.now();
-    let current_date_time_iso = new Date();
-
     getPOSSchedule()
         .then(posSchedule => {
+            
             stdOutLogger('POS Schedule retrieval successfull.');
             getSessionsForSchedule(posSchedule)
                 .then(updatedSchedule => {
+
+                    /*
+                        TODO
+                        [*] Filter schedule contents by date before creating xml file
+
+                    */
+
+                    let iso = getISOlocaleString();
+                    let dIso = new Date(iso.substring(0, 10));
+                    let dateFilteredSchedule = [];
+                    updatedSchedule.forEach(element => {
+                        let d = new Date(element.date);
+                        if(d >= dIso){
+                            dateFilteredSchedule.push(element);
+                        };
+                    });
+                    
                     // generate schedule file based on system type
                     let schedule = new SCHEDULE();
-                    let doremiSchedule = new Uint8Array(Buffer.from(schedule.getDoremiScheduleXML(updatedSchedule)));
+                    let doremiSchedule = new Uint8Array(Buffer.from(schedule.getDoremiScheduleXML(dateFilteredSchedule)));
                         // save posschedule.xml
                     fs.writeFile('POSSchedule.xml', doremiSchedule, (err) => {
                         if(err){
@@ -167,16 +181,6 @@ function updateSchedule(){
                         }) ; 
                         client.connect({ host: tms_server, user: username, password: password });
                     });
-
-                    let db = new mongodb();
-
-                    //db.cleanDbs()
-                    //    .then(r => {
-                    //        if(r) stdOutLogger('Removed old content from databases');
-                    //    })
-                    //    .catch(e => stdOutLogger(e, 1));
-
-
                 }) 
                 .catch(e => {
                     stdOutLogger('Unable to get updated sessions for schedule template', 1);
@@ -231,18 +235,24 @@ function getPOSSchedule(){
                 let screening_array = [];
 
                 r.forEach(element => {
+                    let orgTitle = element.SeanceName[0];
                     switch (element.HallName[0]){
                         case "Club 21 Screen 4":
                             element.HallName[0] = "Screen 16";
+                            element.SeanceName[0] = orgTitle + " in Club 21";
                             break;
                         case "Club 21 Screen 3":
                             element.HallName[0] = "Screen 15";
+                            element.SeanceName[0] = orgTitle + " in Club 21";
                             break;
                         case "Club 21 Screen 2":
                             element.HallName[0] = "Screen 14";
+                            element.SeanceName[0] = orgTitle + " in Club 21";
                             break;
                         case "Club 21 Screen 1":
                             element.HallName[0] = "Screen 13";
+                            element.SeanceName[0] = orgTitle + " in Club 21";
+                            break;
                     }
                     
                     let film_title = element.SeanceName[0];
@@ -771,6 +781,12 @@ export function getISOlocaleString(){
         else{
             hourstring = hour;
          }
+    }
+    if(parseInt(month) < 10){
+        month = "0" + month;
+    }
+    if(parseInt(day) < 10){
+        day = "0" + day;
     }
     return year + '-' + month + '-' + day + 'T'  + hourstring + ':' + minute + ':' + second;
 }
