@@ -141,16 +141,16 @@ function updateSchedule(){
 
                     */
 
-                    let iso = getISOlocaleString();
-                    let dIso = new Date(iso.substring(0, 10));
+                    let iso_today = (getISOlocaleString()).split('T', 1)[0];
                     let dateFilteredSchedule = [];
                     updatedSchedule.forEach(element => {
-                        let d = new Date(element.date);
-                        if(d >= dIso){
+                        let d = element.date;
+                        if(dateCompare(iso_today, d)){
                             dateFilteredSchedule.push(element);
                         };
                     });
                     
+ 
                     // generate schedule file based on system type
                     let schedule = new SCHEDULE();
                     let doremiSchedule = new Uint8Array(Buffer.from(schedule.getDoremiScheduleXML(dateFilteredSchedule)));
@@ -789,4 +789,43 @@ export function getISOlocaleString(){
         day = "0" + day;
     }
     return year + '-' + month + '-' + day + 'T'  + hourstring + ':' + minute + ':' + second;
+}
+
+// fucking javascript sucks at comparing dates.  dOne and dTwo are expected to be iso-format dates with a type of string
+function dateCompare(dOne, dTwo){
+    // get numbers
+    let a_year = parseInt((dOne.split('-', 4))[0]);
+    let a_month = parseInt((dOne.split('-', 4))[1]);
+    let a_day = parseInt((dOne.split('-', 4))[2]);
+    let b_year = parseInt((dTwo.split('-', 4))[0]);
+    let b_month = parseInt((dTwo.split('-', 4))[1]);
+    let b_day = parseInt((dTwo.split('-', 4))[2]);
+
+    // comparison logic: :  dOne is 'today', return true if dTwo is the same or future day. 
+
+    if(a_year === b_year){
+        if(a_month === b_month){
+            if(a_day === b_day){
+                return true;
+            }
+            else if(a_day < b_day){
+                return true;
+            }
+            else{
+                return false
+            }
+        }
+        else if(a_month < b_month){
+            return true;
+        }
+        else {
+            return false;
+        }
+    }
+    else if(a_year < b_year){
+        return true;
+    }
+    else{
+        return false;
+    }
 }
