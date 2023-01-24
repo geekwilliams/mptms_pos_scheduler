@@ -741,7 +741,7 @@ function getSessionsForSchedule(posSchedule){
 export function getISOlocaleString(){
     
     let d = new Date();
-    let localeString = d.toLocaleString('en-US', {timezone: 'America/Denver'});
+    let localeString = d.toLocaleString('en-US', {timeZone: 'America/Denver'});
     let strArr =  localeString.split('/', 5);
     let year = ((strArr[2]).split(',', 2))[0];
     let month = strArr[0];
